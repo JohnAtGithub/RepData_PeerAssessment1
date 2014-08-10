@@ -1,20 +1,126 @@
 # Reproducible Research: Peer Assessment 1
-
+  
+    
+    
 
 ## Loading and preprocessing the data
+The following code chunk use `fread()` function function from `data.table` package 
+to read the activity data. Then the **date** column is explicitly converted to 
+`date` format using `as.Date()` function. 
 
+```{r readdata, echo=TRUE}
+library(data.table)
+activity_data = fread("activity.csv")
+activity_data$date = as.Date(activity_data$date, "%Y-%m-%d")
+```
 
 
 ## What is mean total number of steps taken per day?
+As we can see there are a lot of NAs in the column **steps**, so we have to get
+a data table without NA to start with. Then we sum over the steps for one day.
+```{r meanOfSteps, echo=TRUE}
+activity_data_noNA = activity_data[complete.cases(activity_data),]
+steps_per_day = activity_data_noNA[,lapply(.SD, sum), by="date"]
+```
 
+Then the time to make a histogram about the total number of steps taken each day:
+```{r totalSteps, echo=TRUE}
+library(ggplot2)
+qplot(steps, data=steps_per_day, geom="histogram",binwidth=1000)
+```
 
+Now we calculate the mean and median
+```{r meanMedian, echo=TRUE}
+steps_mean = mean(steps_per_day$steps)
+steps_meadian = median(steps_per_day$steps)
+print(paste("Mean: ", steps_mean,
+            ", median: ", steps_meadian))
+```
 
+  
+  
+  
 ## What is the average daily activity pattern?
+Now we find the mean number of steps taken by the intervals across all the dates.
+Then make a time series plot to show the tendency of daily activity changing with
+time intervals.
+```{r dailyPattern, echo=TRUE}
+steps_per_interval=activity_data_noNA[,mean(steps),by=interval]
+ggplot(steps_per_interval, aes(interval, V1)) + geom_line() + 
+  xlab("Time inverval") + ylab("Steps")
+```
+
+The maximum of the average steps across all days happened at interval can be found 
+by 
+```{r maxInterval, echo=TRUE}
+max_interval = steps_per_interval[, .SD[which.max(V1)]]
+print(paste("Interval with max steps: ",max_interval$interval))
+```
 
 
 
 ## Imputing missing values
+First we need to find how many rows contain missing value. Function `complete.case` finds out which row is free of NAs, so we take its inverse to find the rows having NA.
+```{r findNA, echo=TRUE}
+rows_noNA = complete.cases(activity_data)
+rows_haveNA = !rows_noNA
+print(paste("total number of rows with NA: ", sum(rows_haveNA)))
+```
 
+Now we replace the NAs in steps of a specific interval by the average of that interval across all the days:
+```{r fillNA, echo=TRUE}
+activity_data_complete=merge(activity_data, steps_per_interval, by="interval")
+activity_data_complete=activity_data_complete[order(date, interval),]
+na_idx = is.na(activity_data_complete$steps)
+activity_data_complete$steps[na_idx] = activity_data_complete$V1[na_idx]
+```
+`activity_data_complete` is the new dataset without NA. The reason for eliminating NAs in this way is that, the steps are all NAs 
+for several days, so replace NA in certain interval by the day average is not possiable.  
+
+Now we make a histogram of total number of steps taken per day for the new dataset `activity_data_complete`, to see how 
+it differs from the first one.
+```{r histoNew, echo=TRUE}
+steps_per_day_new = activity_data_complete[,lapply(.SD, sum), by="date"]
+qplot(steps, data=steps_per_day_new, geom="histogram", binwidth=1000)
+```
+
+This histogram becomes smoother than the first one, because we have "hand-added"
+data which takes off the peaks. But the mean would not change because we replaced
+NAs by the mean value of that interval. The median would change.
+```{r newMeanMedian, echo=TRUE}
+steps_mean_new = mean(steps_per_day_new$steps)
+steps_median_new = median(steps_per_day_new$steps)
+print(paste("New dataset has mean: ", steps_mean_new,
+            ", median: ", steps_median_new))
+```
+
+If we imputes missing data in this way, we would push the data manually to these
+means.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+To see the activity pattern betwwen weekday and weekend, we first need to create 
+a new column to categorize the data by weekday and weekend, then get the mean
+value at each time interval 
+```{r weekdayWeekendActivity, echo=TRUE}
+activity_data_complete$date = 
+    as.Date(activity_data_complete$date, format="%Y-%m-%d")
+activity_data_complete$weekday = weekdays(activity_data_complete$date)
+activity_data_complete$weekday=
+    gsub("Saturday|Sunday", "weekend",activity_data_complete$weekday)
+activity_data_complete$weekday=
+    gsub("Monday|Tuesday|Wednesday|Thursday|Friday", 
+         "weekday",activity_data_complete$weekday)
+activity_data_complete$weekday = as.factor(activity_data_complete$weekday)
+steps_per_interval_new = activity_data_complete[, lapply(.SD, mean), 
+                                            .SDcol = "steps",
+                                            by = c("interval","weekday")]
+ggplot(steps_per_interval_new, 
+       aes(x = interval, y = steps)) + 
+       geom_line() + facet_grid(weekday~.)
+```
+
+From the above plot, we observe average steps taken at the weekday is general larger
+than that at the weekend. This makes sense because people wearing these devices may have to walk a little bit
+to their job at weekdays. But at the weekend, they can sleep at morning, so the peak value of steps decreases. However, at the weekend afternoon, the activity increases, we can see that from the emerging peaks at this time frame, in contrary to their low activity at the weekday afternoon.
+In sum, this panel plot tells us people have a very different activity pattern through weekday to weekend.
